@@ -115,7 +115,7 @@ def compare_schemas(dev_schema, qa_schema):
     return changes, column_changes
 
 # Generate SQL queries for changes
-def generate_sql_queries(dev_schema, qa_schema, schema_name='public'):
+def generate_sql_queries(dev_schema, qa_schema, dev_schema_name='public', qa_schema_name='public'):
     sql_queries = []
 
     # Generate SQL for added, removed, and modified columns
@@ -134,7 +134,7 @@ def generate_sql_queries(dev_schema, qa_schema, schema_name='public'):
                 data_type = dev_col['data_type']
                 max_length = dev_col['max_length']
                 nullable = dev_col['nullable']
-                add_column_query = f"ALTER TABLE {schema_name}.{table_name} ADD COLUMN {column_name} {data_type} "
+                add_column_query = f"ALTER TABLE {qa_schema_name}.{table_name} ADD COLUMN {column_name} {data_type} "
                 if max_length:
                     add_column_query += f"({max_length}) "
                 if nullable.lower() == "no":
@@ -149,7 +149,7 @@ def generate_sql_queries(dev_schema, qa_schema, schema_name='public'):
             # Removed columns (in qa but not in dev)
             removed_columns = qa_column_names - dev_column_names
             for column_name in removed_columns:
-                remove_column_query = f"ALTER TABLE {schema_name}.{table_name} DROP COLUMN {column_name};"
+                remove_column_query = f"ALTER TABLE {qa_schema_name}.{table_name} DROP COLUMN {column_name};"
                 sql_queries.append({
                     'table': table_name,
                     'column': column_name,
@@ -166,7 +166,7 @@ def generate_sql_queries(dev_schema, qa_schema, schema_name='public'):
                 if (dev_col['data_type'] != qa_col['data_type'] or
                         dev_col['nullable'] != qa_col['nullable'] or
                         dev_col['max_length'] != qa_col['max_length']):
-                    modify_column_query = f"ALTER TABLE {schema_name}.{table_name} ALTER COLUMN {column_name} "
+                    modify_column_query = f"ALTER TABLE {qa_schema_name}.{table_name} ALTER COLUMN {column_name} "
                     if dev_col['data_type'] != qa_col['data_type']:
                         modify_column_query += f"SET DATA TYPE {dev_col['data_type']} "
                     if dev_col['nullable'] != qa_col['nullable']:
@@ -229,6 +229,10 @@ def main():
         'port': 5432  # Default PostgreSQL port
     }
 
+    # Specify schema names for Dev and QA
+    dev_schema_name = 'dev_schema_name'  # Replace with actual schema name for Dev
+    qa_schema_name = 'qa_schema_name'    # Replace with actual schema name for QA
+
     # Create engine connections for Dev and QA databases
     dev_engine = get_engine(dev_db_config)
     qa_engine = get_engine(qa_db_config)
@@ -238,11 +242,11 @@ def main():
         return
     
     # Fetch schemas with dynamic schema name
-    dev_schema = get_schema(dev_engine, schema_name='public')  # Example: 'public' schema
-    qa_schema = get_schema(qa_engine, schema_name='public')  # Example: 'public' schema
+    dev_schema = get_schema(dev_engine, schema_name=dev_schema_name)
+    qa_schema = get_schema(qa_engine, schema_name=qa_schema_name)
     
     # Generate SQL queries to replicate changes in QA
-    sql_queries = generate_sql_queries(dev_schema, qa_schema)
+    sql_queries = generate_sql_queries(dev_schema, qa_schema, dev_schema_name, qa_schema_name)
     
     # Compare schemas
     changes, column_changes = compare_schemas(dev_schema, qa_schema)
