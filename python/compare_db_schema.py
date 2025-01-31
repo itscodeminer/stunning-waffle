@@ -54,16 +54,22 @@ def compare_schemas(dev_schema, qa_schema):
     dev_tables = set(dev_schema.keys())
     qa_tables = set(qa_schema.keys())
     
-    changes['added'] = list(qa_tables - dev_tables)
-    changes['removed'] = list(dev_tables - qa_tables)
+    # Updated logic:
+    # - "added" tables are in Dev but not in QA (changes made first in Dev)
+    # - "removed" tables are in QA but not in Dev (removed in Dev, but still in QA)
+    changes['added'] = list(dev_tables - qa_tables)
+    changes['removed'] = list(qa_tables - dev_tables)
 
     # Compare columns in tables
     for table_name in dev_tables & qa_tables:
         dev_columns = {col['column_name']: col for col in dev_schema[table_name]}
         qa_columns = {col['column_name']: col for col in qa_schema[table_name]}
         
-        added_columns = set(qa_columns.keys()) - set(dev_columns.keys())
-        removed_columns = set(dev_columns.keys()) - set(qa_columns.keys())
+        # Updated logic for added and removed columns:
+        # - "added" columns are in Dev but not in QA
+        # - "removed" columns are in QA but not in Dev
+        added_columns = set(dev_columns.keys()) - set(qa_columns.keys())
+        removed_columns = set(qa_columns.keys()) - set(dev_columns.keys())
 
         changes['added'] += [(table_name, col) for col in added_columns]
         changes['removed'] += [(table_name, col) for col in removed_columns]
@@ -73,7 +79,7 @@ def compare_schemas(dev_schema, qa_schema):
             dev_col = dev_columns[column_name]
             qa_col = qa_columns[column_name]
             
-            # Compare the column attributes (e.g., nullable, data type, default value)
+            # Compare the column attributes (e.g., nullable, data type, max length)
             if (dev_col['data_type'] != qa_col['data_type'] or
                 dev_col['nullable'] != qa_col['nullable'] or
                 dev_col['max_length'] != qa_col['max_length']):
