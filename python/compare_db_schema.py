@@ -1,41 +1,50 @@
-import psycopg2
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
-# Connect to your Postgres database
-def get_connection(db_config):
-    return psycopg2.connect(
-        host=db_config['host'],
-        database=db_config['database'],
-        user=db_config['user'],
-        password=db_config['password']
-    )
+# Function to create a database connection using SQLAlchemy
+def get_engine(db_config):
+    try:
+        # Format for the connection string: 'postgresql://user:password@host:port/database'
+        connection_string = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+        engine = create_engine(connection_string)
+        return engine
+    except SQLAlchemyError as e:
+        print(f"Error in connecting to the database: {e}")
+        return None
 
-# Function to fetch the schema of tables from the database
-def get_schema(conn):
-    cursor = conn.cursor()
+# Function to fetch the schema of tables from the database using inline SQL
+def get_schema(engine, schema_name='public'):
     query = """
     SELECT table_name, column_name, data_type, character_maximum_length, is_nullable
     FROM information_schema.columns
-    WHERE table_schema = 'public' -- assuming you are using the 'public' schema
+    WHERE table_schema = :schema_name
     ORDER BY table_name, ordinal_position;
     """
-    cursor.execute(query)
-    result = cursor.fetchall()
-    schema = {}
-    for row in result:
-        table_name = row[0]
-        column_name = row[1]
-        data_type = row[2]
-        max_length = row[3]
-        nullable = row[4]
-        if table_name not in schema:
-            schema[table_name] = []
-        schema[table_name].append({
-            'column_name': column_name,
-            'data_type': data_type,
-            'max_length': max_length,
-            'nullable': nullable
-        })
-    return schema
+    try:
+        # Execute the query with the schema name as a parameter
+        with engine.connect() as connection:
+            result = connection.execute(text(query), {'schema_name': schema_name}).fetchall()
+        
+        # Organize the results into a dictionary format
+        schema = {}
+        for row in result:
+            table_name = row[0]
+            column_name = row[1]
+            data_type = row[2]
+            max_length = row[3]
+            nullable = row[4]
+            if table_name not in schema:
+                schema[table_name] = []
+            schema[table_name].append({
+                'column_name': column_name,
+                'data_type': data_type,
+                'max_length': max_length,
+                'nullable': nullable
+            })
+        return schema
+    except SQLAlchemyError as e:
+        print(f"Error while fetching schema: {e}")
+        return {}
 
 # Compare two schemas
 def compare_schemas(dev_schema, qa_schema):
@@ -64,7 +73,10 @@ def compare_schemas(dev_schema, qa_schema):
             dev_col = dev_columns[column_name]
             qa_col = qa_columns[column_name]
             
-            if dev_col != qa_col:
+            # Compare the column attributes (e.g., nullable, data type, default value)
+            if (dev_col['data_type'] != qa_col['data_type'] or
+                dev_col['nullable'] != qa_col['nullable'] or
+                dev_col['max_length'] != qa_col['max_length']):
                 changes['modified'].append({
                     'table': table_name,
                     'column': column_name,
@@ -88,32 +100,34 @@ def main():
         'host': 'dev_db_host',
         'database': 'dev_db_name',
         'user': 'dev_user',
-        'password': 'dev_password'
+        'password': 'dev_password',
+        'port': 5432  # Default PostgreSQL port
     }
     qa_db_config = {
         'host': 'qa_db_host',
         'database': 'qa_db_name',
         'user': 'qa_user',
-        'password': 'qa_password'
+        'password': 'qa_password',
+        'port': 5432  # Default PostgreSQL port
     }
 
-    # Connect to Dev and QA databases
-    dev_conn = get_connection(dev_db_config)
-    qa_conn = get_connection(qa_db_config)
+    # Create engine connections for Dev and QA databases
+    dev_engine = get_engine(dev_db_config)
+    qa_engine = get_engine(qa_db_config)
+
+    if not dev_engine or not qa_engine:
+        print("Failed to connect to one or more databases. Exiting.")
+        return
     
-    # Fetch schemas
-    dev_schema = get_schema(dev_conn)
-    qa_schema = get_schema(qa_conn)
+    # Fetch schemas with dynamic schema name
+    dev_schema = get_schema(dev_engine, schema_name='public')  # Example: 'public' schema
+    qa_schema = get_schema(qa_engine, schema_name='public')  # Example: 'public' schema
     
     # Compare schemas
     changes = compare_schemas(dev_schema, qa_schema)
     
     # Print the differences
     print_changes(changes)
-    
-    # Close the database connections
-    dev_conn.close()
-    qa_conn.close()
 
 if __name__ == "__main__":
     main()
