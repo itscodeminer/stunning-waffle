@@ -1,3 +1,4 @@
+import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -61,6 +62,7 @@ def compare_schemas(dev_schema, qa_schema):
     changes['removed'] = list(qa_tables - dev_tables)
 
     # Compare columns in tables
+    column_changes = []
     for table_name in dev_tables & qa_tables:
         dev_columns = {col['column_name']: col for col in dev_schema[table_name]}
         qa_columns = {col['column_name']: col for col in qa_schema[table_name]}
@@ -71,8 +73,24 @@ def compare_schemas(dev_schema, qa_schema):
         added_columns = set(dev_columns.keys()) - set(qa_columns.keys())
         removed_columns = set(qa_columns.keys()) - set(dev_columns.keys())
 
-        changes['added'] += [(table_name, col) for col in added_columns]
-        changes['removed'] += [(table_name, col) for col in removed_columns]
+        # Log added and removed columns
+        for col in added_columns:
+            column_changes.append({
+                'table': table_name,
+                'column': col,
+                'change': 'added',
+                'dev_data_type': dev_columns[col]['data_type'],
+                'qa_data_type': None
+            })
+        
+        for col in removed_columns:
+            column_changes.append({
+                'table': table_name,
+                'column': col,
+                'change': 'removed',
+                'dev_data_type': None,
+                'qa_data_type': qa_columns[col]['data_type']
+            })
 
         # Compare column details for modified columns
         for column_name in dev_columns & qa_columns:
@@ -86,19 +104,36 @@ def compare_schemas(dev_schema, qa_schema):
                 changes['modified'].append({
                     'table': table_name,
                     'column': column_name,
-                    'dev': dev_col,
-                    'qa': qa_col
+                    'dev_data_type': dev_col['data_type'],
+                    'qa_data_type': qa_col['data_type'],
+                    'dev_nullable': dev_col['nullable'],
+                    'qa_nullable': qa_col['nullable'],
+                    'dev_max_length': dev_col['max_length'],
+                    'qa_max_length': qa_col['max_length']
                 })
                 
-    return changes
+    return changes, column_changes
 
-# Print the differences
-def print_changes(changes):
-    print("Added Tables:", changes['added'])
-    print("Removed Tables:", changes['removed'])
-    print("Added Columns:", changes['added'])
-    print("Removed Columns:", changes['removed'])
-    print("Modified Columns:", changes['modified'])
+# Write the result to an Excel file
+def write_to_excel(changes, column_changes, file_name="db_comparison_result.xlsx"):
+    # Creating dataframes for tables and column changes
+    table_changes_df = pd.DataFrame({
+        'Change Type': ['Added Tables']*len(changes['added']) + ['Removed Tables']*len(changes['removed']),
+        'Table Name': changes['added'] + changes['removed'],
+        'Details': ['N/A']*len(changes['added']) + ['N/A']*len(changes['removed'])
+    })
+
+    column_changes_df = pd.DataFrame(column_changes)
+
+    modified_columns_df = pd.DataFrame(changes['modified'])
+
+    # Create a Pandas Excel writer using openpyxl engine
+    with pd.ExcelWriter(file_name, engine='openpyxl') as writer:
+        table_changes_df.to_excel(writer, sheet_name="Table Changes", index=False)
+        column_changes_df.to_excel(writer, sheet_name="Column Changes", index=False)
+        modified_columns_df.to_excel(writer, sheet_name="Modified Columns", index=False)
+
+    print(f"Results written to {file_name}")
 
 # Main function to execute the script
 def main():
@@ -130,10 +165,10 @@ def main():
     qa_schema = get_schema(qa_engine, schema_name='public')  # Example: 'public' schema
     
     # Compare schemas
-    changes = compare_schemas(dev_schema, qa_schema)
+    changes, column_changes = compare_schemas(dev_schema, qa_schema)
     
-    # Print the differences
-    print_changes(changes)
+    # Write the comparison results to an Excel file
+    write_to_excel(changes, column_changes)
 
 if __name__ == "__main__":
     main()
