@@ -47,6 +47,73 @@ def get_schema(engine, schema_name='public'):
         print(f"Error while fetching schema: {e}")
         return {}
 
+# Compare two schemas (Dev vs QA)
+def compare_schemas(dev_schema, qa_schema):
+    changes = {'added': [], 'removed': [], 'modified': []}
+    
+    # Compare added or removed tables
+    dev_tables = set(dev_schema.keys())
+    qa_tables = set(qa_schema.keys())
+    
+    # Updated logic:
+    # - "added" tables are in Dev but not in QA (changes made first in Dev)
+    # - "removed" tables are in QA but not in Dev (removed in Dev, but still in QA)
+    changes['added'] = list(dev_tables - qa_tables)
+    changes['removed'] = list(qa_tables - dev_tables)
+
+    # Compare columns in tables
+    column_changes = []
+    for table_name in dev_tables & qa_tables:
+        dev_columns = {col['column_name']: col for col in dev_schema[table_name]}
+        qa_columns = {col['column_name']: col for col in qa_schema[table_name]}
+        
+        # Updated logic for added and removed columns:
+        # - "added" columns are in Dev but not in QA
+        # - "removed" columns are in QA but not in Dev
+        added_columns = set(dev_columns.keys()) - set(qa_columns.keys())
+        removed_columns = set(qa_columns.keys()) - set(dev_columns.keys())
+
+        # Log added and removed columns
+        for col in added_columns:
+            column_changes.append({
+                'table': table_name,
+                'column': col,
+                'change': 'added',
+                'dev_data_type': dev_columns[col]['data_type'],
+                'qa_data_type': None
+            })
+        
+        for col in removed_columns:
+            column_changes.append({
+                'table': table_name,
+                'column': col,
+                'change': 'removed',
+                'dev_data_type': None,
+                'qa_data_type': qa_columns[col]['data_type']
+            })
+
+        # Compare column details for modified columns
+        for column_name in dev_columns & qa_columns:
+            dev_col = dev_columns[column_name]
+            qa_col = qa_columns[column_name]
+            
+            # Compare the column attributes (e.g., nullable, data type, max length)
+            if (dev_col['data_type'] != qa_col['data_type'] or
+                dev_col['nullable'] != qa_col['nullable'] or
+                dev_col['max_length'] != qa_col['max_length']):
+                changes['modified'].append({
+                    'table': table_name,
+                    'column': column_name,
+                    'dev_data_type': dev_col['data_type'],
+                    'qa_data_type': qa_col['data_type'],
+                    'dev_nullable': dev_col['nullable'],
+                    'qa_nullable': qa_col['nullable'],
+                    'dev_max_length': dev_col['max_length'],
+                    'qa_max_length': qa_col['max_length']
+                })
+                
+    return changes, column_changes
+
 # Generate SQL queries for changes
 def generate_sql_queries(dev_schema, qa_schema, schema_name='public'):
     sql_queries = []
