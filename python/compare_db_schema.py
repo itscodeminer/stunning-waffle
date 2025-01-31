@@ -55,25 +55,18 @@ def compare_schemas(dev_schema, qa_schema):
     dev_tables = set(dev_schema.keys())
     qa_tables = set(qa_schema.keys())
     
-    # Updated logic:
-    # - "added" tables are in Dev but not in QA (changes made first in Dev)
-    # - "removed" tables are in QA but not in Dev (removed in Dev, but still in QA)
-    changes['added'] = list(dev_tables - qa_tables)
-    changes['removed'] = list(qa_tables - dev_tables)
+    changes['added'] = list(dev_tables - qa_tables)  # Tables in Dev but not in QA
+    changes['removed'] = list(qa_tables - dev_tables)  # Tables in QA but not in Dev
 
-    # Compare columns in tables
     column_changes = []
-    for table_name in dev_tables & qa_tables:
+    for table_name in dev_tables & qa_tables:  # Only compare tables that exist in both
         dev_columns = {col['column_name']: col for col in dev_schema[table_name]}
         qa_columns = {col['column_name']: col for col in qa_schema[table_name]}
-        
-        # Updated logic for added and removed columns:
-        # - "added" columns are in Dev but not in QA
-        # - "removed" columns are in QA but not in Dev
+
+        # Compare added and removed columns
         added_columns = set(dev_columns.keys()) - set(qa_columns.keys())
         removed_columns = set(qa_columns.keys()) - set(dev_columns.keys())
 
-        # Log added and removed columns
         for col in added_columns:
             column_changes.append({
                 'table': table_name,
@@ -92,12 +85,11 @@ def compare_schemas(dev_schema, qa_schema):
                 'qa_data_type': qa_columns[col]['data_type']
             })
 
-        # Compare column details for modified columns
+        # Compare modified columns (data type, max length, nullable)
         for column_name in dev_columns & qa_columns:
             dev_col = dev_columns[column_name]
             qa_col = qa_columns[column_name]
             
-            # Compare the column attributes (e.g., nullable, data type, max length)
             if (dev_col['data_type'] != qa_col['data_type'] or
                 dev_col['nullable'] != qa_col['nullable'] or
                 dev_col['max_length'] != qa_col['max_length']):
@@ -111,14 +103,13 @@ def compare_schemas(dev_schema, qa_schema):
                     'dev_max_length': dev_col['max_length'],
                     'qa_max_length': qa_col['max_length']
                 })
-                
+
     return changes, column_changes
 
 # Generate SQL queries for changes
 def generate_sql_queries(dev_schema, qa_schema, dev_schema_name='public', qa_schema_name='public'):
     sql_queries = []
 
-    # Generate SQL for added, removed, and modified columns
     for table_name, dev_columns in dev_schema.items():
         if table_name in qa_schema:
             qa_columns = qa_schema[table_name]
@@ -138,7 +129,9 @@ def generate_sql_queries(dev_schema, qa_schema, dev_schema_name='public', qa_sch
                 if max_length:
                     add_column_query += f"({max_length}) "
                 if nullable.lower() == "no":
-                    add_column_query += "NOT NULL"
+                    add_column_query += "NOT NULL;"
+                else:
+                    add_column_query += ";"
                 sql_queries.append({
                     'table': table_name,
                     'column': column_name,
@@ -163,20 +156,26 @@ def generate_sql_queries(dev_schema, qa_schema, dev_schema_name='public', qa_sch
                 qa_col = next(col for col in qa_columns if col['column_name'] == column_name)
 
                 # If there are differences, generate ALTER COLUMN query
-                if (dev_col['data_type'] != qa_col['data_type'] or
-                        dev_col['nullable'] != qa_col['nullable'] or
-                        dev_col['max_length'] != qa_col['max_length']):
-                    modify_column_query = f"ALTER TABLE {qa_schema_name}.{table_name} ALTER COLUMN {column_name} "
-                    if dev_col['data_type'] != qa_col['data_type']:
-                        modify_column_query += f"SET DATA TYPE {dev_col['data_type']} "
-                    if dev_col['nullable'] != qa_col['nullable']:
-                        if dev_col['nullable'] == 'no':
-                            modify_column_query += "SET NOT NULL "
-                        else:
-                            modify_column_query += "DROP NOT NULL "
-                    if dev_col['max_length'] != qa_col['max_length'] and dev_col['max_length']:
-                        modify_column_query += f"SET DATA TYPE {dev_col['data_type']}({dev_col['max_length']}) "
+                modify_column_query = f"ALTER TABLE {qa_schema_name}.{table_name} ALTER COLUMN {column_name} "
+                change_detected = False
 
+                if dev_col['data_type'] != qa_col['data_type']:
+                    modify_column_query += f"SET DATA TYPE {dev_col['data_type']} "
+                    change_detected = True
+
+                if dev_col['nullable'] != qa_col['nullable']:
+                    if dev_col['nullable'] == 'no':
+                        modify_column_query += "SET NOT NULL "
+                    else:
+                        modify_column_query += "DROP NOT NULL "
+                    change_detected = True
+
+                if dev_col['max_length'] != qa_col['max_length'] and dev_col['max_length']:
+                    modify_column_query += f"SET DATA TYPE {dev_col['data_type']}({dev_col['max_length']}) "
+                    change_detected = True
+
+                if change_detected:
+                    modify_column_query += ";"
                     sql_queries.append({
                         'table': table_name,
                         'column': column_name,
