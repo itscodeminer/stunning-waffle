@@ -47,75 +47,80 @@ def get_schema(engine, schema_name='public'):
         print(f"Error while fetching schema: {e}")
         return {}
 
-# Compare two schemas
-def compare_schemas(dev_schema, qa_schema):
-    changes = {'added': [], 'removed': [], 'modified': []}
-    
-    # Compare added or removed tables
-    dev_tables = set(dev_schema.keys())
-    qa_tables = set(qa_schema.keys())
-    
-    # Updated logic:
-    # - "added" tables are in Dev but not in QA (changes made first in Dev)
-    # - "removed" tables are in QA but not in Dev (removed in Dev, but still in QA)
-    changes['added'] = list(dev_tables - qa_tables)
-    changes['removed'] = list(qa_tables - dev_tables)
+# Generate SQL queries for changes
+def generate_sql_queries(dev_schema, qa_schema, schema_name='public'):
+    sql_queries = []
 
-    # Compare columns in tables
-    column_changes = []
-    for table_name in dev_tables & qa_tables:
-        dev_columns = {col['column_name']: col for col in dev_schema[table_name]}
-        qa_columns = {col['column_name']: col for col in qa_schema[table_name]}
-        
-        # Updated logic for added and removed columns:
-        # - "added" columns are in Dev but not in QA
-        # - "removed" columns are in QA but not in Dev
-        added_columns = set(dev_columns.keys()) - set(qa_columns.keys())
-        removed_columns = set(qa_columns.keys()) - set(dev_columns.keys())
+    # Generate SQL for added, removed, and modified columns
+    for table_name, dev_columns in dev_schema.items():
+        if table_name in qa_schema:
+            qa_columns = qa_schema[table_name]
 
-        # Log added and removed columns
-        for col in added_columns:
-            column_changes.append({
-                'table': table_name,
-                'column': col,
-                'change': 'added',
-                'dev_data_type': dev_columns[col]['data_type'],
-                'qa_data_type': None
-            })
-        
-        for col in removed_columns:
-            column_changes.append({
-                'table': table_name,
-                'column': col,
-                'change': 'removed',
-                'dev_data_type': None,
-                'qa_data_type': qa_columns[col]['data_type']
-            })
+            # Compare added and removed columns
+            dev_column_names = {col['column_name'] for col in dev_columns}
+            qa_column_names = {col['column_name'] for col in qa_columns}
 
-        # Compare column details for modified columns
-        for column_name in dev_columns & qa_columns:
-            dev_col = dev_columns[column_name]
-            qa_col = qa_columns[column_name]
-            
-            # Compare the column attributes (e.g., nullable, data type, max length)
-            if (dev_col['data_type'] != qa_col['data_type'] or
-                dev_col['nullable'] != qa_col['nullable'] or
-                dev_col['max_length'] != qa_col['max_length']):
-                changes['modified'].append({
+            # Added columns (in dev but not in qa)
+            added_columns = dev_column_names - qa_column_names
+            for column_name in added_columns:
+                dev_col = next(col for col in dev_columns if col['column_name'] == column_name)
+                data_type = dev_col['data_type']
+                max_length = dev_col['max_length']
+                nullable = dev_col['nullable']
+                add_column_query = f"ALTER TABLE {schema_name}.{table_name} ADD COLUMN {column_name} {data_type} "
+                if max_length:
+                    add_column_query += f"({max_length}) "
+                if nullable.lower() == "no":
+                    add_column_query += "NOT NULL"
+                sql_queries.append({
                     'table': table_name,
                     'column': column_name,
-                    'dev_data_type': dev_col['data_type'],
-                    'qa_data_type': qa_col['data_type'],
-                    'dev_nullable': dev_col['nullable'],
-                    'qa_nullable': qa_col['nullable'],
-                    'dev_max_length': dev_col['max_length'],
-                    'qa_max_length': qa_col['max_length']
+                    'change': 'added',
+                    'sql': add_column_query
                 })
-                
-    return changes, column_changes
+
+            # Removed columns (in qa but not in dev)
+            removed_columns = qa_column_names - dev_column_names
+            for column_name in removed_columns:
+                remove_column_query = f"ALTER TABLE {schema_name}.{table_name} DROP COLUMN {column_name};"
+                sql_queries.append({
+                    'table': table_name,
+                    'column': column_name,
+                    'change': 'removed',
+                    'sql': remove_column_query
+                })
+
+            # Modified columns (compare column attributes)
+            for column_name in dev_column_names & qa_column_names:
+                dev_col = next(col for col in dev_columns if col['column_name'] == column_name)
+                qa_col = next(col for col in qa_columns if col['column_name'] == column_name)
+
+                # If there are differences, generate ALTER COLUMN query
+                if (dev_col['data_type'] != qa_col['data_type'] or
+                        dev_col['nullable'] != qa_col['nullable'] or
+                        dev_col['max_length'] != qa_col['max_length']):
+                    modify_column_query = f"ALTER TABLE {schema_name}.{table_name} ALTER COLUMN {column_name} "
+                    if dev_col['data_type'] != qa_col['data_type']:
+                        modify_column_query += f"SET DATA TYPE {dev_col['data_type']} "
+                    if dev_col['nullable'] != qa_col['nullable']:
+                        if dev_col['nullable'] == 'no':
+                            modify_column_query += "SET NOT NULL "
+                        else:
+                            modify_column_query += "DROP NOT NULL "
+                    if dev_col['max_length'] != qa_col['max_length'] and dev_col['max_length']:
+                        modify_column_query += f"SET DATA TYPE {dev_col['data_type']}({dev_col['max_length']}) "
+
+                    sql_queries.append({
+                        'table': table_name,
+                        'column': column_name,
+                        'change': 'modified',
+                        'sql': modify_column_query
+                    })
+
+    return sql_queries
 
 # Write the result to an Excel file
-def write_to_excel(changes, column_changes, file_name="db_comparison_result.xlsx"):
+def write_to_excel(changes, column_changes, sql_queries, file_name="db_comparison_result.xlsx"):
     # Creating dataframes for tables and column changes
     table_changes_df = pd.DataFrame({
         'Change Type': ['Added Tables']*len(changes['added']) + ['Removed Tables']*len(changes['removed']),
@@ -124,14 +129,19 @@ def write_to_excel(changes, column_changes, file_name="db_comparison_result.xlsx
     })
 
     column_changes_df = pd.DataFrame(column_changes)
-
+    
     modified_columns_df = pd.DataFrame(changes['modified'])
+
+    # Add SQL Queries to the column changes DataFrame
+    sql_queries_df = pd.DataFrame(sql_queries)
+    sql_queries_df['SQL'] = sql_queries_df['sql']
 
     # Create a Pandas Excel writer using openpyxl engine
     with pd.ExcelWriter(file_name, engine='openpyxl') as writer:
         table_changes_df.to_excel(writer, sheet_name="Table Changes", index=False)
         column_changes_df.to_excel(writer, sheet_name="Column Changes", index=False)
         modified_columns_df.to_excel(writer, sheet_name="Modified Columns", index=False)
+        sql_queries_df.to_excel(writer, sheet_name="SQL Queries", index=False)
 
     print(f"Results written to {file_name}")
 
@@ -164,11 +174,14 @@ def main():
     dev_schema = get_schema(dev_engine, schema_name='public')  # Example: 'public' schema
     qa_schema = get_schema(qa_engine, schema_name='public')  # Example: 'public' schema
     
+    # Generate SQL queries to replicate changes in QA
+    sql_queries = generate_sql_queries(dev_schema, qa_schema)
+    
     # Compare schemas
     changes, column_changes = compare_schemas(dev_schema, qa_schema)
     
     # Write the comparison results to an Excel file
-    write_to_excel(changes, column_changes)
+    write_to_excel(changes, column_changes, sql_queries)
 
 if __name__ == "__main__":
     main()
