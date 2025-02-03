@@ -174,6 +174,13 @@ def generate_sql_queries(dev_schema, qa_schema, dev_schema_name='public', qa_sch
                     modify_column_query += f"SET DATA TYPE {dev_col['data_type']}({dev_col['max_length']}) "
                     change_detected = True
 
+                if dev_col['column_default'] != qa_col['column_default']:
+                    if dev_col['column_default'] is not None:
+                        modify_column_query += f" SET DEFAULT {dev_col['column_default']}"
+                    else:
+                        modify_column_query += " DROP DEFAULT"
+                    change_detected = True
+
                 if change_detected:
                     modify_column_query += ";"
                     sql_queries.append({
