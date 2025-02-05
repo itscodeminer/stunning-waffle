@@ -4,3 +4,5 @@ let
     FilteredRows = Table.SelectRows(YourList, each [Modified] >= DateTime.LocalNow() - #duration(7, 0, 0, 0))
 in
     FilteredRows
+
+https://[yoursharepointsite]/_api/web/lists/getbytitle('YourListName')/views/getbytitle('7DaysView')/items
