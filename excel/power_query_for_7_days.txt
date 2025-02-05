@@ -1,0 +1,6 @@
+let
+    Source = SharePoint.Tables("https://yoursharepointsite", [ApiVersion = 15]),
+    YourList = Source{[Name="YourSharePointListName"]}[Content],
+    FilteredRows = Table.SelectRows(YourList, each [Modified] >= DateTime.LocalNow() - #duration(7, 0, 0, 0))
+in
+    FilteredRows
