@@ -1,5 +1,12 @@
-from sqlalchemy import func
+from pydantic import BaseModel
 from sqlalchemy.orm import aliased
+from sqlalchemy import func
+
+# Define a Pydantic model for your response
+class EmployeeResponse(BaseModel):
+    emp_id: int
+    emp_full_name: str
+    manager_name: str
 
 # Step 1: Create an alias for the Employee table to refer to the manager
 manager_alias = aliased(Employee)
@@ -14,16 +21,16 @@ cte = session.query(
     Employee.id == NewHire.old_emp_id  # Join condition for old_emp_id
 ).cte()  # Create CTE
 
-# Step 3: Join the CTE with Employee to get manager details
+# Step 3: Query all columns from CTE and manager's full name from manager_alias
 results = session.query(
-    cte.c.emp_id,  # emp_id from CTE
-    cte.c.emp_full_name,  # Full name of old employee from CTE
-    func.concat(manager_alias.first_name, ' ', manager_alias.last_name).label('manager_name')  # Full name of manager
+    *[cte.c[column.name] for column in cte.columns],  # Dynamically select all columns from the CTE
+    func.concat(manager_alias.first_name, ' ', manager_alias.last_name).label('manager_name')  # Explicitly select manager's full name
 ).join(  # INNER JOIN with the manager using the manager_id from CTE
     manager_alias, 
     manager_alias.id == cte.c.emp_manager_id  # Join condition on manager_id
 ).all()
 
-# Step 4: Output the results
-for result in results:
-    print(f"New Hire ID: {result.emp_id}, Employee Full Name: {result.emp_full_name}, Manager Full Name: {result.manager_name}")
+# Step 4: Convert the results to Pydantic model
+employee_responses = [EmployeeResponse(**row._asdict()) for row in results]
+
+# Now employee_responses is a list of Pydantic models
