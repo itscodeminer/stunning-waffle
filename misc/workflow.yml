@@ -1,0 +1,33 @@
+name: Build and Upload to GitHub Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: self-hosted  # Using your self-hosted runner
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        
+      - name: Build artifacts
+        run: |
+          mkdir -p build
+          echo "This is an artifact!" > build/artifact.txt
+          
+      - name: Create Release
+        id: create_release
+        run: |
+          release_response=$(curl -X POST https://api.github.com/repos/${{ github.repository }}/releases \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -d '{"tag_name": "v1.0.0", "name": "Release v1.0.0"}')
+          echo "Release created: $release_response"
+          
+      - name: Upload artifact to Release
+        run: |
+          release_id=$(echo ${{ steps.create_release.outputs.release_response }} | jq -r '.id')
+          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -F "file=@build/artifact.txt
