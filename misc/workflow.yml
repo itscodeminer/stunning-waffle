@@ -1,33 +1,29 @@
-name: Build and Upload to GitHub Release
-
-on:
-  push:
-    branches:
-      - main
-
 jobs:
-  build:
-    runs-on: self-hosted  # Using your self-hosted runner
-    
+  deploy:
+    runs-on: self-hosted
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-        
-      - name: Build artifacts
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
         run: |
-          mkdir -p build
-          echo "This is an artifact!" > build/artifact.txt
-          
-      - name: Create Release
-        id: create_release
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Deploy FastAPI app to Azure App Service
         run: |
-          release_response=$(curl -X POST https://api.github.com/repos/${{ github.repository }}/releases \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -d '{"tag_name": "v1.0.0", "name": "Release v1.0.0"}')
-          echo "Release created: $release_response"
-          
-      - name: Upload artifact to Release
-        run: |
-          release_id=$(echo ${{ steps.create_release.outputs.release_response }} | jq -r '.id')
-          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -F "file=@build/artifact.txt
+          echo "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}" > publish-profile.xml
+          az webapp deployment source config-zip \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --name ${{ secrets.AZURE_APP_SERVICE_NAME }} \
+            --src fastapi-app.zip \
+            --publish-profile publish-profile.xml
+        env:
+          AZURE_WEBAPP_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_APP_SERVICE_NAME: ${{ secrets.AZURE_APP_SERVICE_NAME }}
