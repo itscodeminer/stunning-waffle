@@ -61,6 +61,13 @@ style = TableStyleInfo(name="TableStyleMedium9",
 table.tableStyleInfo = style
 ws.add_table(table)
 
+# Auto-fit column width
+for col in ws.columns:
+    max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+    adjusted_width = max_length + 2
+    col_letter = get_column_letter(col[0].column)
+    ws.column_dimensions[col_letter].width = adjusted_width
+
 wb.save(excel_file)
 
 print(f"✅ Excel report generated: {excel_file}")
