@@ -1,27 +1,22 @@
 import pandas as pd
-import psycopg2
+from sqlalchemy import create_engine
 from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.utils import get_column_letter
 from datetime import datetime
 
-# === Connect to DB ===
-conn = psycopg2.connect(
-    dbname="your_db",          # Replace with your DB name
-    user="your_user",          # Replace with your DB user
-    password="your_password",  # Replace with your DB password
-    host="your_host",          # Replace with your DB host
-    port="5432"                # Replace with your DB port (default is 5432)
-)
+# === 1. Connect to DB using SQLAlchemy ===
+engine = create_engine("postgresql+psycopg2://your_user:your_password@your_host:5432/your_db")
 
-# === Call the Function ===
+# === 2. Call the PostgreSQL function ===
 sql = "SELECT * FROM get_severity_summary();"
-df = pd.read_sql(sql, conn)
+with engine.connect() as conn:
+    df = pd.read_sql(sql, conn)
 
-# === Pivot the data ===
-# Combine bucket + count as formatted strings (e.g., "2 P1, 3 P5+")
+# === 3. Create breakdown string per severity bucket ===
 df['breakdown'] = df['count'].astype(str) + ' P' + df['bucket']
 
-# Collapse multiple severities per day into single cell
+# === 4. Collapse multiple severities per day into single cell ===
 pivot_df = (
     df.groupby(['tech_id', 'first_name', 'state', 'city', 'zone', 'team', 'closed_day'])
       .agg({'breakdown': lambda x: ', '.join(sorted(x))})
@@ -32,26 +27,40 @@ pivot_df = (
       .reset_index()
 )
 
-# Add "Total SRs" column (total SR count per tech)
+# === 5. Calculate Total SRs ===
 df_totals = df.groupby(['tech_id', 'first_name', 'state', 'city', 'zone', 'team'])['count'].sum().reset_index(name='Total SRs')
-pivot_df = pd.merge(df_totals, pivot_df, on=['tech_id', 'first_name', 'state', 'city', 'zone', 'team'])
 
-# === Output to Excel ===
+# === 6. Merge totals into pivot and move "Total SRs" to end ===
+full_df = pd.merge(pivot_df, df_totals, on=['tech_id', 'first_name', 'state', 'city', 'zone', 'team'])
+
+# Move "Total SRs" to the last column
+cols = [col for col in full_df.columns if col != 'Total SRs'] + ['Total SRs']
+full_df = full_df[cols]
+
+# === 7. Export to Excel ===
 excel_file = f"srs_severity_report_{datetime.now().strftime('%Y%m%d')}.xlsx"
 sheet_name = "SR Report"
-pivot_df.to_excel(excel_file, index=False, sheet_name=sheet_name)
+full_df.to_excel(excel_file, index=False, sheet_name=sheet_name)
 
-# Style the sheet as an Excel table
+# === 8. Style the Excel sheet as a table ===
 wb = load_workbook(excel_file)
 ws = wb[sheet_name]
-end_col = chr(64 + pivot_df.shape[1])  # Assumes <26 columns (A-Z); for more columns, use openpyxl.utils.get_column_letter
-table_range = f"A1:{end_col}{pivot_df.shape[0]+1}"
-table = Table(displayName="SRReport", ref=table_range)
-style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
-                       showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+
+end_col = get_column_letter(full_df.shape[1])
+table_range = f"A1:{end_col}{full_df.shape[0] + 1}"
+
+# Safe table name (must be alphanumeric, no spaces)
+table = Table(displayName="SRReportTable", ref=table_range)
+
+style = TableStyleInfo(name="TableStyleMedium9",
+                       showFirstColumn=False,
+                       showLastColumn=False,
+                       showRowStripes=True,
+                       showColumnStripes=False)
+
 table.tableStyleInfo = style
 ws.add_table(table)
+
 wb.save(excel_file)
 
-# Print the final file location
-print(f"✅ Report ready: {excel_file}")
+print(f"✅ Excel report generated: {excel_file}")
