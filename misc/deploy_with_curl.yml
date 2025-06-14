@@ -28,3 +28,10 @@ jobs:
         curl -T fastapi_app.zip \
           -u ${{ secrets.AZURE_FTP_USER }}:${{ secrets.AZURE_FTP_PASS }} \
           https://${{ secrets.AZURE_FTP_URL }}/site/wwwroot/fastapi_app.zip
+
+    - name: Deploy using Zip Deploy API
+      run: |
+        curl -X POST "https://${{ secrets.AZURE_FTP_URL }}/api/zipdeploy" \
+          -u ${{ secrets.AZURE_FTP_USER }}:${{ secrets.AZURE_FTP_PASS }} \
+          --data-binary @fastapi_app.zip
+
