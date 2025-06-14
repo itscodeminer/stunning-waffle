@@ -1,0 +1,30 @@
+name: Deploy FastAPI via FTP
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Create ZIP of back_end/
+      run: |
+        cd back_end
+        zip -r ../fastapi_app.zip .
+
+    - name: Upload ZIP to Azure via FTPS
+      run: |
+        curl -T fastapi_app.zip \
+          -u ${{ secrets.AZURE_FTP_USER }}:${{ secrets.AZURE_FTP_PASS }} \
+          https://${{ secrets.AZURE_FTP_URL }}/site/wwwroot/fastapi_app.zip
