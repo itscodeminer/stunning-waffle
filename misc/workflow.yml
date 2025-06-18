@@ -38,6 +38,15 @@ jobs:
         run: |
           zip -r fastapi_app.zip .  # Package your app into a zip file
 
+      - name: Install Azure CLI if needed
+        run: |
+          az version || sudo apt-get update && sudo apt-get install -y azure-cli
+
+      - name: Use host az to verify auth
+        run: |
+          echo "Using az on the host"
+          az account show
+
       - name: Deploy ZIP using az CLI
         uses: azure/cli@v2.1.0
         with:
