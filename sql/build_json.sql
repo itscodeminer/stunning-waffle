@@ -16,22 +16,28 @@ GROUP BY t.site;
 
 
 -- validate
--- Flatten json and compare values
-WITH json_expanded AS (
+WITH exploded_json AS (
   SELECT
-    t.site,
-    t.unique_id,
-    meta.column_name,
-    to_jsonb(t) -> meta.column_name AS actual_value,
-    jsonb_build_object(
-      'field_name', meta.field_name,
-      'field_display_name', meta.field_display_name,
-      'value', to_jsonb(t) -> meta.column_name,
-      'is_track_time', false
-    ) AS json_field
-  FROM project_data t
-  JOIN project_metadata meta ON TRUE
+    np.site,
+    (jsonb_array_elements(np.field_info)) AS field_obj
+  FROM new_project_data_json np
+),
+field_map AS (
+  SELECT
+    meta.field_name,
+    meta.column_name
+  FROM metadata_table meta
 )
-SELECT *
-FROM json_expanded
-WHERE actual_value IS DISTINCT FROM json_field ->> 'value';
+SELECT
+  ej.site,
+  fm.column_name,
+  (project_data.*)::jsonb -> fm.column_name AS original_value,
+  ej.field_obj->'value' AS json_value,
+  CASE
+    WHEN ((project_data.*)::jsonb -> fm.column_name) IS DISTINCT FROM (ej.field_obj->'value') THEN 'MISMATCH'
+    ELSE 'MATCH'
+  END AS validation_result
+FROM exploded_json ej
+JOIN field_map fm ON ej.field_obj->>'field_name' = fm.field_name
+JOIN project_data ON project_data.site = ej.site
+ORDER BY ej.site, fm.column_name;
