@@ -42,41 +42,28 @@ JOIN field_map fm ON ej.field_obj->>'field_name' = fm.field_name
 JOIN project_data ON project_data.site = ej.site
 ORDER BY ej.site, fm.column_name;
 
+SELECT
+  ped.tech_id,
+  sm.time_zone,
+  elem->>'value' AS original_value,
+  to_char(
+    (
+      (elem->>'value')::timestamp
+      AT TIME ZONE CASE sm.time_zone
+        WHEN 'Eastern'  THEN 'America/New_York'
+        WHEN 'Central'  THEN 'America/Chicago'
+        WHEN 'Mountain' THEN 'America/Denver'
+        WHEN 'Pacific'  THEN 'America/Los_Angeles'
+        WHEN 'Hawaii'   THEN 'Pacific/Honolulu'
+        ELSE 'UTC'
+      END
+    ) AT TIME ZONE 'UTC',  -- convert local to UTC
+    'YYYY-MM-DD"T"HH24:MI:SS"Z"'
+  ) AS converted_value_utc_iso8601
+FROM project_execution_data ped
+JOIN staff_master sm ON ped.tech_id = sm.tech_id
+CROSS JOIN LATERAL jsonb_array_elements(ped.project_data) AS elem
+WHERE elem->>'field_name' = 'comm_rack_inspection_date';
 
-UPDATE project_execution_data ped
-SET project_data = (
-    SELECT jsonb_agg(
-        CASE
-            WHEN elem->>'field_name' = 'comm_rack_inspection_date' THEN
-                jsonb_set(
-                    elem,
-                    '{value}',
-                    to_jsonb(
-                        to_char(
-                            (
-                                (elem->>'value')::timestamp
-                                AT TIME ZONE (
-                                    CASE sm.time_zone
-                                        WHEN 'Eastern'  THEN 'America/New_York'
-                                        WHEN 'Central'  THEN 'America/Chicago'
-                                        WHEN 'Mountain' THEN 'America/Denver'
-                                        WHEN 'Pacific'  THEN 'America/Los_Angeles'
-                                        WHEN 'Hawaii'   THEN 'Pacific/Honolulu'
-                                        ELSE 'UTC'
-                                    END
-                                )
-                            ) AT TIME ZONE 'UTC',  -- convert to UTC
-                            'YYYY-MM-DD"T"HH24:MI:SS"Z"'  -- ISO 8601 UTC format
-                        )
-                    )
-                )
-            ELSE
-                elem
-        END
-    )
-    FROM jsonb_array_elements(ped.project_data) AS elem
-)
-FROM staff_master sm
-WHERE ped.tech_id = sm.tech_id
   AND project_data @> '[{"field_name": "comm_rack_inspection_date"}]';
 
