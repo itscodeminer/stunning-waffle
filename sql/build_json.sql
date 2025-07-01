@@ -67,3 +67,38 @@ WHERE elem->>'field_name' = 'comm_rack_inspection_date';
 
   AND project_data @> '[{"field_name": "comm_rack_inspection_date"}]';
 
+UPDATE project_execution_data ped
+SET project_data = (
+    SELECT jsonb_agg(
+        CASE
+            WHEN elem->>'field_name' = 'comm_rack_inspection_date'
+                 AND elem->>'value' IS NOT NULL THEN
+                jsonb_set(
+                    elem,
+                    '{value}',
+                    to_jsonb(
+                        to_char(
+                            (
+                                (elem->>'value')::timestamp
+                                AT TIME ZONE CASE sm.time_zone
+                                    WHEN 'Eastern'  THEN 'America/New_York'
+                                    WHEN 'Central'  THEN 'America/Chicago'
+                                    WHEN 'Mountain' THEN 'America/Denver'
+                                    WHEN 'Pacific'  THEN 'America/Los_Angeles'
+                                    WHEN 'Hawaii'   THEN 'Pacific/Honolulu'
+                                    ELSE 'UTC'
+                                END
+                            ) AT TIME ZONE 'UTC',
+                            'YYYY-MM-DD"T"HH24:MI:SS"Z"'
+                        )
+                    )
+                )
+            ELSE
+                elem
+        END
+    )
+    FROM jsonb_array_elements(ped.project_data) AS elem
+)
+FROM staff_master sm
+WHERE ped.staff_id = sm.id
+  AND project_data @> '[{"field_name": "comm_rack_inspection_date"}]';
