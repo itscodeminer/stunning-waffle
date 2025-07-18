@@ -1,0 +1,42 @@
+name: Deploy (Dev by default or Tag if provided)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to deploy (leave empty to deploy dev branch)'
+        required: false
+        default: ''
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Determine ref to checkout
+        id: set-ref
+        run: |
+          if [ -z "${{ github.event.inputs.tag }}" ]; then
+            echo "ref=dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=refs/tags/${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.set-ref.outputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy
+        run: ./deploy.sh
