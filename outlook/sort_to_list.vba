@@ -1,41 +1,103 @@
-Sub SortToRecipients()
+Sub SortRecipientsByLastName_To_And_Cc()
     Dim Mail As MailItem
-    Dim Recipients As Outlook.Recipients
-    Dim AddrList() As String
-    Dim i As Integer
+    Set Mail = Application.ActiveInspector.CurrentItem
 
-    If Application.ActiveInspector.CurrentItem.Class = olMail Then
-        Set Mail = Application.ActiveInspector.CurrentItem
-        Set Recipients = Mail.Recipients
-
-        If Recipients.Count > 1 Then
-            ReDim AddrList(Recipients.Count - 1)
-            For i = 1 To Recipients.Count
-                AddrList(i - 1) = Recipients.Item(i).Address
-            Next i
-
-            ' Sort alphabetically
-            Call BubbleSort(AddrList)
-
-            ' Clear and re-add
-            Mail.To = ""
-            For i = 0 To UBound(AddrList)
-                Mail.To = Mail.To & AddrList(i) & "; "
-            Next i
+    If Mail.Class = olMail Then
+        ' Sort To field
+        If Mail.Recipients.Count > 0 Then
+            Call SortRecipientTypeByLastName(Mail, olTo)
+            Call SortRecipientTypeByLastName(Mail, olCC)
         End If
     End If
 End Sub
 
-Sub BubbleSort(arr() As String)
+Sub SortRecipientTypeByLastName(ByRef Mail As MailItem, ByVal RecipType As Long)
+    Dim Recipients As Outlook.Recipients
+    Dim TempRecipients As Collection
+    Dim i As Long
+    Dim displayNames() As String
+    Dim emailAddresses() As String
+    Dim count As Long
+    Dim sortedList As String
+
+    Set Recipients = Mail.Recipients
+    Set TempRecipients = New Collection
+
+    ' Count recipients of the given type (To or Cc)
+    count = 0
+    For i = 1 To Recipients.Count
+        If Recipients(i).Type = RecipType Then
+            count = count + 1
+        End If
+    Next i
+
+    If count <= 1 Then Exit Sub ' No need to sort
+
+    ReDim displayNames(count - 1)
+    ReDim emailAddresses(count - 1)
+
+    ' Collect names and emails of given type
+    count = 0
+    For i = 1 To Recipients.Count
+        If Recipients(i).Type = RecipType Then
+            displayNames(count) = Recipients(i).Name
+            emailAddresses(count) = Recipients(i).Address
+            count = count + 1
+        End If
+    Next i
+
+    ' Sort by last name
+    Call SortByLastName(displayNames, emailAddresses)
+
+    ' Build sorted string
+    sortedList = ""
+    For i = 0 To UBound(emailAddresses)
+        sortedList = sortedList & emailAddresses(i)
+        If i < UBound(emailAddresses) Then
+            sortedList = sortedList & "; "
+        End If
+    Next i
+
+    ' Apply back to Mail item
+    If RecipType = olTo Then
+        Mail.To = sortedList
+    ElseIf RecipType = olCC Then
+        Mail.CC = sortedList
+    End If
+End Sub
+
+Sub SortByLastName(ByRef names() As String, ByRef emails() As String)
     Dim i As Long, j As Long
-    Dim temp As String
-    For i = LBound(arr) To UBound(arr) - 1
-        For j = i + 1 To UBound(arr)
-            If LCase(arr(i)) > LCase(arr(j)) Then
-                temp = arr(i)
-                arr(i) = arr(j)
-                arr(j) = temp
+    Dim tempName As String, tempEmail As String
+    For i = LBound(names) To UBound(names) - 1
+        For j = i + 1 To UBound(names)
+            If GetLastName(names(i)) > GetLastName(names(j)) Then
+                ' Swap names
+                tempName = names(i)
+                names(i) = names(j)
+                names(j) = tempName
+                ' Swap emails to keep alignment
+                tempEmail = emails(i)
+                emails(i) = emails(j)
+                emails(j) = tempEmail
             End If
         Next j
     Next i
 End Sub
+
+Function GetLastName(fullName As String) As String
+    Dim parts() As String
+    If InStr(fullName, ",") > 0 Then
+        ' Format: Last, First
+        parts = Split(fullName, ",")
+        GetLastName = Trim(parts(0))
+    Else
+        ' Format: First Last
+        parts = Split(fullName, " ")
+        If UBound(parts) >= 1 Then
+            GetLastName = Trim(parts(UBound(parts)))
+        Else
+            GetLastName = fullName
+        End If
+    End If
+End Function
