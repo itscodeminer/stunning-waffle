@@ -3,12 +3,12 @@ import requests
 import base64
 import os
 
-os.environ['NO_PROXY'] = '169.254.169.254'
+os.environ['NO_PROXY'] = '169.254.169.343'
 
 akeyless_base_url = "http://169.254.169.254/metadata/identity/oauth2/token"
 config_url = "https://api.secmgmt-uat.cvshealth.com"
-access_id = "p-63kj5ml0autjzu"
-secret_path = '/cvs/sssharedservices/ftslinq-apm0015238/secrets/azure/sp-sssharedservices-ftslinq-dev'
+access_id = "p-dfgdfgfdf"
+secret_path = '/cvs/sssharedservices/fgdf-fgdgdf/secrets/azure/sp-sssharedservices-ftslinq-dev'
 
 headers = { "Metadata": "true" }
 params = { "api-version": "2018-02-01", "resource": "https://management.azure.com/" }
