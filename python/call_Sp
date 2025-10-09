@@ -1,0 +1,22 @@
+from datetime import datetime
+
+job_name = 'sync_users'
+started_at = datetime.now()
+interval_value = 15
+interval_unit = 'minute'
+
+sql = text("""
+    SELECT start_job_run(:job_name, :started_at, :interval_value, :interval_unit)
+""")
+
+with engine.connect() as conn:
+    result = conn.execute(sql, {
+        "job_name": job_name,
+        "started_at": started_at,
+        "interval_value": interval_value,
+        "interval_unit": interval_unit
+    })
+
+    # Fetch the returned log_id
+    log_id = result.scalar()
+    print(f"Log ID: {log_id}")
